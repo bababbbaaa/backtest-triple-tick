@@ -17,15 +17,16 @@ atr_multiplier = 1.5
 # abspath of '../public'
 public_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'public')) + '/'
 
-def test_trading(result, data):
-    current_capital = 5000.0
-    tick_count = lower = target_price = stop_price = 0
-    win = lose = draw = 0
-    position_size = entried_price = 0
-    same_tick_count = first_trade_time = 0
-    entry_count = trigger_stop = biggest_loss_rate = 0
-    previous_capital = previous_position_size = previous_tick_count = 0
+def simulate_trades(result, data):
+    balance = 5000.0
+    ticks_elapsed = lower_bound = target = stop = 0
+    wins = losses = draws = 0
+    position = entry_price = 0
+    same_tick_counter = first_trade_timestamp = 0
+    entry_counter = stop_triggered = max_loss_rate = 0
+    prev_balance = prev_position = prev_ticks_elapsed = 0
     ma_trend = 0
+
     atr_tick_multiplier = result['conditions']['atr_tick_multiplier']
     same_tick = result['conditions']['same_tick']
     back_size = result['conditions']['back_size']
@@ -33,10 +34,11 @@ def test_trading(result, data):
     same_holding = result['conditions']['same_holding']
     divide = result['conditions']['divide']
     trade_tick = result['conditions']['trade_tick']
+
     print("current conditions", profit_percent, atr_tick_multiplier, trade_tick, same_tick, same_holding, divide, back_size)
 
     for _, row in data.iterrows():
-        [time, open, high, low, close, atr, ema] = [row['timestamp'], row['open'], row['high'], row['low'], row['close'], row['atr'], row['ema']]
+        [timestamp, open, high, low, close, atr, ema] = [row['timestamp'], row['open'], row['high'], row['low'], row['close'], row['atr'], row['ema']]
         tick_size = atr_tick_multiplier * atr
         
         if ema > close:
@@ -44,94 +46,92 @@ def test_trading(result, data):
         else:
             ma_trend = 0
         
-        if tick_count == 0:
-            lower = open
+        if ticks_elapsed == 0:
+            lower_bound = open
 
-        if high >= target_price and position_size > 0:
-            win += 1
-            fee = (position_size * target_price) * 0.0004
-            profit = position_size * (target_price - entried_price) - fee
-            current_capital += profit
-            position_size = 0
-            entried_price = 0
-            target_price = 0
-            stop_price = 0
-            tick_count = 0
-            entry_count = 0
-            same_tick_count = 0
+        if high >= target and position > 0:
+            wins += 1
+            fee = (position * target) * 0.0004
+            profit = position * (target - entry_price) - fee
+            balance += profit
+            position = 0
+            entry_price = 0
+            target = 0
+            stop = 0
+            ticks_elapsed = 0
+            entry_counter = 0
+            same_tick_counter = 0
 
-        elif (low <= stop_price and position_size > 0) or (trigger_stop == 1 and position_size > 0 and previous_position_size > 0):
-            trigger_stop = 0
-            if stop_price == 0:
-                stop_price = open
-            fee = (position_size * stop_price) * 0.0004
-            loss = position_size * (stop_price - entried_price) - fee
-            loss_rate = loss # / current_capital
-            biggest_loss_rate = loss_rate if loss_rate < biggest_loss_rate else biggest_loss_rate
-            current_capital += loss
-            position_size = 0
-            entried_price = 0
-            target_price = 0
-            stop_price = 0
-            tick_count = 0
-            entry_count = 0
-            same_tick_count = 0
+        elif (low <= stop and position > 0) or (stop_triggered == 1 and position > 0 and prev_position > 0):
+            stop_triggered = 0
+            if stop == 0:
+                stop = open
+            fee = (position * stop) * 0.0004
+            loss = position * (stop - entry_price) - fee
+            balance += loss
+            position = 0
+            entry_price = 0
+            target = 0
+            stop = 0
+            ticks_elapsed = 0
+            entry_counter = 0
+            same_tick_counter = 0
 
-            if previous_capital < current_capital:
-                draw += 1
+            if prev_balance < balance:
+                draws += 1
             else:
-                lose += 1
+                losses += 1
 
-        if current_capital > 0:
-            if lower - close >= tick_size:
-                same_tick_count = 0
-                tick_count += 1
-                lower = close
+        if balance > 0:
+            if lower_bound - close >= tick_size:
+                same_tick_counter = 0
+                ticks_elapsed += 1
+                lower_bound = close
 
-                if tick_count >= trade_tick and entry_count < divide: # and (entry_count == 0 and row['rsi'] < 120) or (entry_count > 0)):
-                    if ma_trend > 20 and entry_count == 0:
-                        tick_count = 0
+                if ticks_elapsed >= trade_tick and entry_counter < divide: # and (entry_count == 0 and row['rsi'] < 120) or (entry_count > 0)):
+                    if ma_trend > 20 and entry_counter == 0:
+                        ticks_elapsed = 0
                     else:
-                        if first_trade_time == 0:
-                            first_trade_time = time
-                        entry_count += 1
-                        newly_size = current_capital / close * leverage * (1/4.0)
-                        entried_price = ((entried_price * position_size) + (close * newly_size)) / (position_size + newly_size)
-                        fee = newly_size * entried_price * 0.0004
-                        current_capital -= fee
-                        position_size += newly_size
-                        target_price = entried_price + atr * atr_multiplier * profit_percent
+                        if first_trade_timestamp == 0:
+                            first_trade_timestamp = timestamp
+                        entry_counter += 1
+                        newly_size = balance / close * leverage * (1/4.0)
+                        entry_price = ((entry_price * position) + (close * newly_size)) / (position + newly_size)
+                        fee = newly_size * entry_price * 0.0004
+                        balance -= fee
+                        position += newly_size
+                        target = entry_price + atr * atr_multiplier * profit_percent
                         if loss_percent > 0:
-                            stop_price = entried_price - atr * atr_multiplier * loss_percent
+                            stop = entry_price - atr * atr_multiplier * loss_percent
 
-            if tick_count > 0:
-                if lower - close <= tick_size * -1 * back_size and position_size == 0:
-                    tick_count = 0
-                    same_tick_count = 0
-                if tick_count == previous_tick_count if previous_tick_count else False:
-                    same_tick_count += 1
-                    if same_tick_count == same_tick and position_size == 0:
-                        tick_count = 0
-                        same_tick_count = 0
-                    if same_tick_count == same_holding and position_size > 0 and previous_position_size > 0:
-                        trigger_stop = 1
+            if ticks_elapsed > 0:
+                if lower_bound - close <= tick_size * -1 * back_size and position == 0:
+                    ticks_elapsed = 0
+                    same_tick_counter = 0
+                if ticks_elapsed == prev_ticks_elapsed if prev_ticks_elapsed else False:
+                    same_tick_counter += 1
+                    if same_tick_counter == same_tick and position == 0:
+                        ticks_elapsed = 0
+                        same_tick_counter = 0
+                    if same_tick_counter == same_holding and position > 0 and prev_position > 0:
+                        stop_triggered = 1
                 else:
-                    same_tick_count = 0
+                    same_tick_counter = 0
                     
-        if current_capital <= 100:
+        if balance <= 100:
             break
 
-        previous_capital = current_capital
-        previous_position_size = position_size
-        previous_tick_count = tick_count
+        prev_balance = balance
+        prev_position = position
+        prev_ticks_elapsed = ticks_elapsed
 
-    pnl = (current_capital - 5000.0)/5000.0 * 100
-    if win + lose == 0:
+    pnl = (balance - 5000.0)/5000.0 * 100
+    if wins + losses == 0:
         win_rate = 0
     else:
-        win_rate = win / (win + lose) * 100
+        win_rate = wins / (wins + losses) * 100
     # print pnl, win_rate with 2 decimal places and win, lose, draw
-    print(f"PNL: {pnl}%, Win Rate: {win_rate}%, Win: {win}, Lose: {lose}, Draw: {draw}")
+    print(f"PNL: {pnl}%, Win Rate: {win_rate}%, Win: {wins}, Lose: {losses}, Draw: {draws}")
     result['result'] = {'win_rate': win_rate, 'pnl': pnl}
     return result
 
@@ -157,7 +157,7 @@ def backtest(params, data):
                             'back_size': back_size, 
                             'atr_multiplier': atr_multiplier,
                             'leverage': leverage}}
-    result = test_trading(result, data)
+    result = simulate_trades(result, data)
     return result
 
 def refine_search_space(best_conditions):
@@ -227,17 +227,25 @@ def run_backtest(symbols = None, step_size = 0.2, first_time = None, last_time =
         best_results = None  # Add this line to initialize the variable
     
         # Check to see if there is data of symbol for a win rate of 90% or higher.
-        if symbol in df['symbol'].values and df.loc[df['symbol'] == symbol]['win_rate'].max() >= 90 and df.loc[df['symbol'] == symbol]['profit_percent'].min() >= 0.5:
-            first_row = df.loc[df['symbol'] == symbol].iloc[0]
-            refined_param_combinations = refine_search_space({
-                'profit_percent': first_row['profit_percent'],
-                'atr_tick_multiplier': first_row['atr_tick_multiplier'],
-                'trade_tick': first_row['trade_tick'],
-                'same_tick': first_row['same_tick'],
-                'same_holding': first_row['same_holding'],
-                'divide': first_row['divide'],
-                'back_size': first_row['back_size'],
-            })
+        
+        # If df contains data for symbol and the win rate is 90% or higher, then refine the search space to move forward to the next step.
+        if symbol in df['symbol'].values and df.loc[df['symbol'] == symbol]['win_rate'].max() >= 90 and df.loc[df['symbol'] == symbol]['profit_percent'].min() >= 0.45:
+            # skip step 1 and define best_results as the best result of df if the pnl is greater than 80
+            best_results = df.loc[df['symbol'] == symbol].sort_values(by='pnl', ascending=False).iloc[0].to_dict()
+            if best_results['pnl'] < 80:
+                best_results = None
+            else:
+                best_results['conditions'] = {
+                    'profit_percent': best_results['profit_percent'],
+                    'atr_tick_multiplier': best_results['atr_tick_multiplier'],
+                    'trade_tick': best_results['trade_tick'],
+                    'same_tick': best_results['same_tick'],
+                    'same_holding': best_results['same_holding'],
+                    'divide': best_results['divide'],
+                    'back_size': best_results['back_size'],
+                }
+                best_results['result'] = { 'pnl': best_results['pnl'], 'win_rate': best_results['win_rate'] }
+            print('## Step 1: Skip Backtesting... already exists {}', best_results)
         else:
             # Step 1: Perform a rough search
             param_combinations = get_param_combinations(step_size)
@@ -249,8 +257,10 @@ def run_backtest(symbols = None, step_size = 0.2, first_time = None, last_time =
                 results = list(executor.map(backtest_with_data, param_combinations))
 
             # Select the best PNL conditions among those with a win rate of 90% or more.
-            best_results = sorted([result for result in results if result['result']['win_rate'] >= 90], key=lambda x: x['result']['pnl'], reverse=True)[0]
+            best_results = sorted([result for result in results if result['result']['win_rate'] >= 90 and result['result']['pnl'] >= 80], key=lambda x: x['result']['pnl'], reverse=True)[0]
             print('## Step 1: Best PNL conditions: {}'.format(best_results))
+        
+        # check if step 1 is processed and if there is a condition with win_rate >= 90% && pnl >= 80
         if best_results is not None:
             # Step 2: Perform a more detailed search around the best condition found in Step 1
             refined_param_combinations = refine_search_space({
@@ -262,8 +272,8 @@ def run_backtest(symbols = None, step_size = 0.2, first_time = None, last_time =
                 'divide': best_results['conditions']['divide'],
                 'back_size': best_results['conditions']['back_size'],
             })
-        if refined_param_combinations is None:
-            print('## No condition with win_rate >= 90% found in Step 1. Skipping Step 2.')
+        else:
+            print('## No condition with win_rate >= 90%, pnl >= 80 found in Step 1. Skipping Step 2.')
             continue
 
         # Execute backtesting for refined parameters
