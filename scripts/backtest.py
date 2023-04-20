@@ -10,6 +10,7 @@ if __name__ == '__main__':
         sys.exit(1)
 
     symbols = sys.argv[1]
+    
     # parse step_size from string to float
     step_size = float(sys.argv[2]) if len(sys.argv) > 2 else None
     first_time = sys.argv[3] if len(sys.argv) > 3 else None

@@ -2,6 +2,7 @@
 
 /public
 .env
+/scripts/__pycache__
 
 # dependencies
 /node_modules

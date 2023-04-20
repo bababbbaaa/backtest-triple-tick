@@ -43,7 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   // Loop through symbols and calculate realized PnL for each
   for (const symbol of symbols) {
     console.log(`Fetching trades for symbol ${symbol}...`);
-    let startTime = new Date("2023-03-18").getTime();
+    let startTime = new Date("2023-04-06").getTime();
     const endTime = new Date().getTime();
     console.log(`Fetching trades between ${new Date(startTime)} and ${new Date(endTime)}`);
     try {

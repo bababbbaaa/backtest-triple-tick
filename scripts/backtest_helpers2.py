@@ -13,7 +13,6 @@ from concurrent.futures import ProcessPoolExecutor
 leverage = 8
 loss_percent = 0
 atr_multiplier = 1.5
-period_days = 30
 
 # abspath of '../public'
 public_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'public')) + '/'
@@ -39,7 +38,7 @@ def simulate_trades(result, data):
     print("current conditions", profit_percent, atr_tick_multiplier, trade_tick, same_tick, same_holding, divide, back_size)
 
     for _, row in data.iterrows():
-        [timestamp, open, high, low, close, atr, ema, rsi, short_trend] = [row['timestamp'], row['open'], row['high'], row['low'], row['close'], row['atr'], row['ema'], row['rsi'], row['short_trend']]
+        [timestamp, open, high, low, close, atr, ema] = [row['timestamp'], row['open'], row['high'], row['low'], row['close'], row['atr'], row['ema']]
         tick_size = atr_tick_multiplier * atr
         
         if ema > close:
@@ -84,10 +83,9 @@ def simulate_trades(result, data):
                 losses += 1
 
         if balance > 0:
-            if lower_bound - close >= tick_size and rsi <= 50:
+            if lower_bound - close >= tick_size:
                 same_tick_counter = 0
-                if (not short_trend and entry_counter == 0) or entry_counter > 0:
-                    ticks_elapsed += 1
+                ticks_elapsed += 1
                 lower_bound = close
 
                 if ticks_elapsed >= trade_tick and entry_counter < divide: # and (entry_count == 0 and row['rsi'] < 120) or (entry_count > 0)):
@@ -138,13 +136,13 @@ def simulate_trades(result, data):
     return result
 
 def get_param_combinations(step_size):
-    profit_percents = np.arange(0.55, 0.96, step_size)
-    atr_tick_multipliers = np.arange(0.5, 1.1, step_size)
+    profit_percents = np.arange(0.45, 0.81, step_size)
+    atr_tick_multipliers = np.arange(0.5, 0.96, step_size)
     trade_ticks = np.arange(3, 4, 1)
-    same_ticks = np.arange(2, 11, step_size * 10)
+    same_ticks = np.arange(2, 13, step_size * 10)
     same_holdings = np.arange(20, 21, 1)
-    divides = np.arange(4, 5, 2)
-    back_sizes = np.arange(0.55, 0.96, step_size)
+    divides = np.arange(2, 5, 2)
+    back_sizes = np.arange(0.5, 0.96, step_size)
     
     return list(product(profit_percents, atr_tick_multipliers, trade_ticks, same_ticks, same_holdings, divides, back_sizes))
 
@@ -156,7 +154,9 @@ def backtest(params, data):
                             'same_tick': same_tick,
                             'same_holding': same_holding,
                             'divide': divide,
-                            'back_size': back_size}}
+                            'back_size': back_size, 
+                            'atr_multiplier': atr_multiplier,
+                            'leverage': leverage}}
     result = simulate_trades(result, data)
     return result
 
@@ -215,19 +215,6 @@ def get_klines_data(symbol, first_time = None, last_time = None):
     # data['timestamp'] = pd.to_datetime(data['timestamp'], unit='s')
     if first_time is not None and last_time is not None:
         data = data.loc[(data['timestamp'] >= first_time) & (data['timestamp'] <= last_time)]
-    
-    # Calculate EMA (len = 10)
-    data["ema10"] = data["close"].ewm(span=10, adjust=False).mean()
-    data["ema50"] = data["close"].ewm(span=50, adjust=False).mean()
-    data["ema100"] = data["close"].ewm(span=100, adjust=False).mean()
-    data["ema200"] = data["close"].ewm(span=200, adjust=False).mean()
-    
-    # Short Trend is np.where data["ema10"] <= data["ema50"] and data["ema50"] <= data["ema100"] and data["ema100"] <= data["ema200"]
-    data["short_trend"] = np.where((data["ema10"] <= data["ema50"]) & (data["ema50"] <= data["ema100"]) & (data["ema100"] <= data["ema200"]), 1, 0)
-    
-    # drop columns of ema10, ema50, ema100, ema200
-    data = data.drop(columns=["ema10", "ema50", "ema100", "ema200"])
-
     return data
 
 def convert_df_to_results(df, symbol):
@@ -244,31 +231,13 @@ def convert_df_to_results(df, symbol):
     best_results['result'] = { 'pnl': best_results['pnl'], 'win_rate': best_results['win_rate'] }
     return best_results
 
-def get_data_in_range(data, first_time, last_time):
-    # data["timestamp"] = string("1580515200")
-    # first_time = Timestamp("2020-01-01 00:00:00")
-    # last_time = Timestamp("2020-01-31 00:00:00")
-    # so, "return data.loc[(data['timestamp'] >= first_time) & (data['timestamp'] <= last_time)]" will occur error.
-    return data.loc[(pd.to_datetime(data['timestamp'], unit="s") >= first_time) & (pd.to_datetime(data['timestamp'], unit="s") <= last_time)]
-
-# result will be like this:
-# {"symbol": "BTCUSDT",
-#  "pnl_sum": 0.0,
-#  "win_rate_avg": 0.0,
-#  "periods": [
-#    {"period_from": "2021-01-01 00:00:00", "period_to": "2021-01-15 00:00:00", "pnl": 0.0, "win_rate": 0.0, "conditions": {"profit_percent": 0.1, "atr_tick_multiplier": 1.0, "trade_tick": 0.5, "same_tick": 0.5, "same_holding": 0.5, "divide": 0.5, "back_size": 0.5}},
-#    {"period_from": "2021-01-15 00:00:00", "period_to": "2021-01-30 00:00:00", "pnl": 0.0, "win_rate": 0.0, "conditions": {"profit_percent": 0.1, "atr_tick_multiplier": 1.0, "trade_tick": 0.5, "same_tick": 0.5, "same_holding": 0.5, "divide": 0.5, "back_size": 0.5}},
-#  ],
-# }
 def run_backtest(symbols = None, step_size = 0.2, first_time = None, last_time = None):
     df = get_df()
     symbols = get_symbols(symbols, df)
-    # sort symbols Z->A
-    symbols = sorted(symbols, reverse=True)
     
-    first_time = pd.to_datetime(first_time).timestamp() if first_time is not None else None
-    
-    all_result = []
+    # first_time = convert_time(first_time)
+    # last_time = convert_time(last_time)
+
     for symbol in symbols:
         print('## Symbol: {} ({}/{})'.format(symbol, symbols.index(symbol) + 1, len(symbols)))
 
@@ -277,12 +246,7 @@ def run_backtest(symbols = None, step_size = 0.2, first_time = None, last_time =
         if data.empty:
             print('## Skip Backtesting... data is empty')
             continue
-        
-        data_first_time, data_last_time = pd.to_datetime(data['timestamp'].iloc[0], unit="s"), pd.to_datetime(data['timestamp'].iloc[-1], unit="s")
-
-        print("data_first_time: {}, first_time: {}".format(data_first_time, first_time))
-        
-        first_time = pd.to_datetime(first_time, unit="s") if first_time is not None else None
+        data_first_time, data_last_time = data['timestamp'].iloc[0], data['timestamp'].iloc[-1]
         
         if first_time is not None and data_first_time > first_time:
             print('## Skip Backtesting... data_first_time is later than first_time, {} > {}'.format(data_first_time, first_time))
@@ -295,38 +259,24 @@ def run_backtest(symbols = None, step_size = 0.2, first_time = None, last_time =
 
         results = []
         best_results = None
-        
-        if not symbol in df['symbol'].values:
-            continue
-
-        symbol_result = { 'symbol': symbol, 'pnl_sum': 0.0, 'win_rate_avg': 0.0, 'periods': [] }
-        next_period_from = first_time
-        while True:
-            period_from = next_period_from
-            if data_last_time < period_from + pd.Timedelta(days=period_days*5):
-                print('## Skip Backtesting... data_last_time is earlier than period_to, {} < {}'.format(data_last_time, period_from + pd.Timedelta(days=period_days*5)))
-                break
-            period_to = period_from + pd.Timedelta(days=period_days*4)
-
-            data_in_range = get_data_in_range(data, period_from, period_to)
-
+        if symbol in df['symbol'].values:
+            best_results = convert_df_to_results(df, symbol)
+            print('## Step 1: Skip Backtesting... already exists {}', best_results)
+        else:
             param_combinations = get_param_combinations(step_size)
             total_step = len(param_combinations)
             print('## Step 1: Perform a rough search, total_step is {}'.format(total_step))
-            print('## Period: {} ~ {}'.format(period_from, period_to))
 
             with ProcessPoolExecutor() as executor:
-                backtest_with_data = partial(backtest, data=data_in_range)
+                backtest_with_data = partial(backtest, data=data)
                 results = list(executor.map(backtest_with_data, param_combinations))
 
-            best_results = sorted([result for result in results if result['result']['win_rate'] >= 93 and result['result']['pnl'] >= 50], key=lambda x: x['result']['win_rate'], reverse=True)
+            best_results = sorted([result for result in results if result['result']['win_rate'] >= 90 and result['result']['pnl'] >= 80], key=lambda x: x['result']['pnl'], reverse=True)
             if len(best_results) > 0:
                 best_results = best_results[0]
-            else:
-                print('## Skip Backtesting... no best result')
-                break
-
             print('## Step 1: Best PNL conditions: {}'.format(best_results))
+        
+        if best_results is not None:
             refined_param_combinations = refine_search_space({
                 'profit_percent': best_results['conditions']['profit_percent'],
                 'atr_tick_multiplier': best_results['conditions']['atr_tick_multiplier'],
@@ -336,74 +286,21 @@ def run_backtest(symbols = None, step_size = 0.2, first_time = None, last_time =
                 'divide': best_results['conditions']['divide'],
                 'back_size': best_results['conditions']['back_size'],
             })
-
-            # Execute backtesting for refined parameters
-            total_step = len(refined_param_combinations)
-            print('## Step 2: Perform a more detailed search, total_step is {}'.format(total_step))
-
-            with ProcessPoolExecutor() as executor:
-                backtest_with_data = partial(backtest, data=data_in_range)
-                results += list(executor.map(backtest_with_data, refined_param_combinations))
-            
-
-            # Uniqueize elements with duplicate PNL values.
-            seen_pnls = set()
-            unique_results = []
-            for result in results:
-                pnl = result['result']['pnl']
-                if pnl not in seen_pnls:
-                    seen_pnls.add(pnl)
-                    unique_results.append(result)
-            results = unique_results
-            # Select the best PNL conditions among those with a win rate of 90% or more.
-            results = sorted([result for result in results if result['result']['win_rate'] >= 95 and result['result']['pnl'] >= 30], key=lambda x: x['result']['pnl'], reverse=True)[:3]
-            
-            if len(results) == 0:
-                break
-            
-            # step 3: Perform with results condition for 15 days from period_to
-            period_from = period_to
-            period_to = period_from + pd.Timedelta(days=period_days)
-            data_in_range = get_data_in_range(data, period_from, period_to)
-            print("# Step 3: Perform with results condition for 15 days from period_to")
-            print('## Period: {} ~ {}'.format(period_from, period_to))
-            
-            # convert for result['conditions'] each results to list of tuple
-            param_combi = [tuple(result['conditions'].values()) for result in results]
-            
-            
-            with ProcessPoolExecutor() as executor:
-                backtest_with_data = partial(backtest, data=data_in_range)
-                final_results = list(executor.map(backtest_with_data, param_combi))
-            # Select best pnl final result
-            for final_result in final_results:
-                print("## Step 3: result: {}".format(result))
-                if final_result['result']['pnl'] < 0:
-                    break
-                symbol_result['periods'].append({
-                    "period_from": period_from,
-                    "period_to": period_to,
-                    "pnl": final_result['result']['pnl'],
-                    "win_rate": final_result['result']['win_rate'],
-                    "conditions": final_result['conditions'],
-                })
-                print("## Step 3: Best PNL conditions: {}".format(final_result))
-            next_period_from = period_to - pd.Timedelta(days=period_days*4)
-        
-        if len(symbol_result['periods']) == 0:
+        else:
+            print('## No condition with win_rate >= 90%, pnl >= 80 found in Step 1. Skipping Step 2.')
             continue
-        
-        symbol_result['pnl_sum'] = sum([period['pnl'] for period in symbol_result['periods']])
-        symbol_result['win_rate_avg'] = sum([period['win_rate'] for period in symbol_result['periods']]) / len(symbol_result['periods'])
-        
-        print("symbol_result: {}".format(symbol_result))
-        all_result.append(symbol_result)
-    
-    print("all_result: {}".format(all_result))
 
+        # Execute backtesting for refined parameters
+        total_step = len(refined_param_combinations)
+        print('## Step 2: Perform a more detailed search, total_step is {}'.format(total_step))
+
+        with ProcessPoolExecutor() as executor:
+            backtest_with_data = partial(backtest, data=data)
+            results += list(executor.map(backtest_with_data, refined_param_combinations))
             
-            
-    if False:
+        # Select the best 3 PNL conditions among those with a win rate of 90% or more.
+        results = sorted([result for result in results if result['result']['win_rate'] >= 90], key=lambda x: x['result']['pnl'], reverse=True)[:3]
+        
         # Save backtesting results to result.csv
         for result in results:
             new_result = {
